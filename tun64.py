@@ -3,6 +3,9 @@
 # See LICENSE file for usage conditions
 __version__ = '0.2/Ashley'
 
+import logging
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
+
 from scapy.all import *
 import argparse
 from random import randint
@@ -127,7 +130,7 @@ args = parser.parse_args()
 if args.verbose == 2:
     print(args)
 
-if args.version == True:
+if args.version:
     print(__version__)
     quit()
 
