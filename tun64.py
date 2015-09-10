@@ -258,10 +258,20 @@ elif args.nonh6:
 if args.gre:
     if args.verbose >= 1:
         print("[*] Using GRE")
-    ip = IP(proto=47, src=srcip4, dst=dstip4)
-    gre = GRE(proto=41)
-    load = packet[IP].payload
-    packet = ip/gre/load
+    # IPv4 - IPv6 - GRE - TCP/UDP/SCTP/NH - Raw
+    ip4 = IP(proto=41, src=srcip4, dst=dstip4)
+    ip6 = IPv6(src=srcip6, dst=dstip6, nh=47)
+    gre = GRE()
+    if args.udp:
+        gre.proto = 17
+    elif args.tcp:
+        gre.proto = 6
+    elif args.sctp:
+        gre.proto = 132
+    elif args.nonh6:
+        gre.proto = 59
+    load = packet.payload.payload
+    packet = ip4/ip6/gre/load
 
 if args.verbose >= 2:
     ls(packet)
