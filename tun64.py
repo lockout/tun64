@@ -1,4 +1,4 @@
-#!/usr/bin/python -tt
+#!/usr/bin/env python
 # (c) 2015 Bernhards 'Lockout' Blumbergs
 # See LICENSE file for usage conditions
 __version__ = '0.21/Ashley'
@@ -258,19 +258,11 @@ elif args.nonh6:
 if args.gre:
     if args.verbose >= 1:
         print("[*] Using GRE")
-    # IPv4 - IPv6 - GRE - TCP/UDP/SCTP/NH - Raw
+    # IPv4 - IPv6 - GRE - IPv4 - IPv6 - TCP/UDP/SCTP/NH - Raw
     ip4 = IP(proto=41, src=srcip4, dst=dstip4)
     ip6 = IPv6(src=srcip6, dst=dstip6, nh=47)
-    gre = GRE()
-    if args.udp:
-        gre.proto = 17
-    elif args.tcp:
-        gre.proto = 6
-    elif args.sctp:
-        gre.proto = 132
-    elif args.nonh6:
-        gre.proto = 59
-    load = packet.payload.payload
+    gre = GRE(proto=0x800)
+    load = packet
     packet = ip4/ip6/gre/load
 
 if args.verbose >= 2:
